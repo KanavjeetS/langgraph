@@ -1483,3 +1483,32 @@ async def test_include_headers(
                     headers=headers,
                 )
     assert stream_mock.call_args.kwargs["headers"] == expected
+
+
+from langgraph.pregel.remote import _to_v2_stream_part
+
+
+def test_to_v2_stream_part_does_not_mutate_values_data() -> None:
+    data = {"state": {"count": 1}, "__interrupt__": [{"value": "continue"}]}
+
+    part = _to_v2_stream_part("values", (), data)
+
+    assert part["data"] == {"state": {"count": 1}}
+    assert part["interrupts"][0].value == "continue"
+    assert data == {
+        "state": {"count": 1},
+        "__interrupt__": [{"value": "continue"}],
+    }
+
+
+def test_to_v2_stream_part_preserves_non_values_data() -> None:
+    data = {"node": {"count": 1}}
+
+    part = _to_v2_stream_part("updates", (), data)
+
+    assert part == {
+        "type": "updates",
+        "ns": (),
+        "data": data,
+        "interrupts": (),
+    }
