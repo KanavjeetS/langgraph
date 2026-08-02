@@ -115,6 +115,23 @@ class RemoteException(Exception):
     pass
 
 
+def _to_v2_stream_part(
+    mode: str, ns: tuple[str, ...], data: Any
+) -> StreamPart:
+    """Convert a remote stream event to the v2 shape without mutating it."""
+    interrupts: tuple[Interrupt, ...] = ()
+    if mode == "values" and isinstance(data, dict):
+        # ``chunk.data`` may be shared with the SDK stream (and with a parent
+        # graph).  Copy before removing the protocol-only interrupt payload so
+        # formatting a v2 event does not alter data seen by other consumers.
+        data = data.copy()
+        interrupts = tuple(
+            Interrupt(**i) if isinstance(i, dict) else i
+            for i in data.pop(INTERRUPT, ())
+        )
+    return {"type": mode, "ns": ns, "data": data, "interrupts": interrupts}
+
+
 class RemoteGraph(PregelProtocol):
     """The `RemoteGraph` class is a client implementation for calling remote
     APIs that implement the LangGraph Server API specification.
@@ -853,13 +870,7 @@ class RemoteGraph(PregelProtocol):
 
             # emit chunk
             if version == "v2":
-                ints: tuple[Interrupt, ...] = ()
-                if mode == "values" and isinstance(chunk.data, dict):
-                    ints = tuple(
-                        Interrupt(**i) if isinstance(i, dict) else i
-                        for i in chunk.data.pop(INTERRUPT, ())
-                    )
-                yield {"type": mode, "ns": ns, "data": chunk.data, "interrupts": ints}
+                yield _to_v2_stream_part(mode, ns, chunk.data)
             elif subgraphs:
                 if NS_SEP in chunk.event:
                     mode, ns_ = chunk.event.split(NS_SEP, 1)
@@ -1008,13 +1019,7 @@ class RemoteGraph(PregelProtocol):
 
             # emit chunk
             if version == "v2":
-                ints: tuple[Interrupt, ...] = ()
-                if mode == "values" and isinstance(chunk.data, dict):
-                    ints = tuple(
-                        Interrupt(**i) if isinstance(i, dict) else i
-                        for i in chunk.data.pop(INTERRUPT, ())
-                    )
-                yield {"type": mode, "ns": ns, "data": chunk.data, "interrupts": ints}
+                yield _to_v2_stream_part(mode, ns, chunk.data)
             elif subgraphs:
                 if NS_SEP in chunk.event:
                     mode, ns_ = chunk.event.split(NS_SEP, 1)
